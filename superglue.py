@@ -14,6 +14,7 @@ from utils import *
 
 class SphericalImageMatcher:
     def __init__(self, model_type='opt', precision='mp', img_width=1600, img_height=800):
+        
         self.IMG_WIDTH = img_width
         self.IMG_HEIGHT = img_height
         self.superpoint_config = {
@@ -29,7 +30,7 @@ class SphericalImageMatcher:
         self.extractor = self._initialize_extractor()
         self.matcher = self._initialize_matcher()
         self.yolo_model = YOLO("/home/luffy/continue/ultralytics/runs/detect/train2/weights/best.pt")
-
+        print ("SuperGlue Loaded")
 
     def _initialize_extractor(self):
         superpoint = SuperPoint(self.superpoint_config)

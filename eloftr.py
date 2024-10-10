@@ -94,7 +94,6 @@ class SphericalImageMatcher:
             'image0': img0,
             'image1': img1,
         }
-
         with torch.no_grad():
             if self.precision == 'mp':
                 with torch.autocast(enabled=True, device_type='cuda'):
@@ -104,6 +103,89 @@ class SphericalImageMatcher:
             mkpts0 = batch['mkpts0_f'].cpu().numpy()
             mkpts1 = batch['mkpts1_f'].cpu().numpy()
             mconf = batch['mconf'].cpu().numpy()
-        # print (img0.shape)
+        print (img0.shape)
         mkpts0,mkpts1,mconf = self.post_process_kpts(img_0,img_1,mkpts0,mkpts1,mconf)
         return mkpts0,mkpts1
+
+
+    def match_batch(self, img_pairs, batch_size=4):
+        results = []
+        
+        img0_batch = []
+        img1_batch = []
+
+        img0_batch_raw = []
+        img1_batch_raw = []
+        for img_0, img_1 in img_pairs:
+            img0_raw = cv2.cvtColor(img_0, cv2.COLOR_BGR2GRAY) if len(img_0.shape) == 3 else img_0
+            img1_raw = cv2.cvtColor(img_1, cv2.COLOR_BGR2GRAY) if len(img_1.shape) == 3 else img_1
+
+            img0_raw = cv2.resize(img0_raw, (img0_raw.shape[1] // 32 * 32, img0_raw.shape[0] // 32 * 32))
+            img1_raw = cv2.resize(img1_raw, (img1_raw.shape[1] // 32 * 32, img1_raw.shape[0] // 32 * 32))
+
+            if self.precision == 'fp16':
+                img0 = torch.from_numpy(img0_raw)[None][None].half().cuda() / 255.
+                img1 = torch.from_numpy(img1_raw)[None][None].half().cuda() / 255.
+            else:
+                img0 = torch.from_numpy(img0_raw)[None][None].cuda() / 255.
+                img1 = torch.from_numpy(img1_raw)[None][None].cuda() / 255.
+
+            img0_batch_raw.append(img0)
+            img1_batch_raw.append(img1)
+            img0_batch.append(img_0)
+            img1_batch.append(img_1)
+
+            # If batch is full, process it
+            if len(img0_batch) == batch_size:
+                results.extend(self._process_batch(img0_batch_raw, img1_batch_raw, img0_batch, img1_batch))
+                img0_batch = []
+                img1_batch = []
+                img0_batch_raw = []
+                img1_batch_raw = []
+
+        # Process any remaining images in the final batch
+        if len(img0_batch) > 0:
+            results.extend(self._process_batch(img0_batch_raw, img1_batch_raw, img0_batch, img1_batch))
+
+        return results
+
+    # Helper function to process a batch
+    def _process_batch(self, img0_batch_raw, img1_batch_raw,img0_batch,img1_batch):
+        batch_results = []
+        # Create batch tensors
+        img0_tensor = torch.cat(img0_batch_raw, dim=0)
+        img1_tensor = torch.cat(img1_batch_raw, dim=0)
+        print (img0_tensor.shape)
+        batch = {
+            'image0': img0_tensor,
+            'image1': img1_tensor,
+        }
+
+        with torch.no_grad():
+            if self.precision == 'mp':
+                with torch.autocast(enabled=True, device_type='cuda'):
+                    self.matcher(batch)
+            else:
+                self.matcher(batch)
+
+            mkpts0_batch = batch['mkpts0_f'].cpu().numpy()
+            mkpts1_batch = batch['mkpts1_f'].cpu().numpy()
+            mconf_batch = batch['mconf'].cpu().numpy()
+            b_ids = batch['b_ids'].cpu().numpy()  # Get the batch IDs
+
+        # Group keypoints by batch ID
+        for i in range(len(img0_batch)):
+            # Find keypoints that belong to the i-th image in the batch
+            mask = b_ids == i
+            mkpts0 = mkpts0_batch[mask]
+            mkpts1 = mkpts1_batch[mask]
+            mconf = mconf_batch[mask]
+
+            img0 = img0_batch[i]
+            img1 = img1_batch[i]
+            
+            # Post-process the keypoints (using YOLO model for filtering)
+            mkpts0, mkpts1, mconf = self.post_process_kpts(img0, img1, mkpts0, mkpts1, mconf)
+            batch_results.append((mkpts0, mkpts1))
+
+        return batch_results

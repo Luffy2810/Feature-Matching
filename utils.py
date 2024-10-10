@@ -21,8 +21,8 @@ def visualize_matches(img0, img1, mkpts0, mkpts1, save_name, timetaken, show_key
     """
     # Limit to 100 matches if there are more than 100
     num_matches = len(mkpts0)
-    if len(mkpts0) > 100:
-        idxs = random.sample(range(len(mkpts0)), 100)
+    if len(mkpts0) > 250:
+        idxs = random.sample(range(len(mkpts0)), 250)
         mkpts0 = mkpts0[idxs]
         mkpts1 = mkpts1[idxs]
 
